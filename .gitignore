@@ -45,3 +45,10 @@ dataset/Multi Camera Semantic Segmentation/
 # Misc
 *.bak
 *.tmp
+
+# cluade
+*.claude
+CLAUDE.md
+
+# wandb
+/wandb
