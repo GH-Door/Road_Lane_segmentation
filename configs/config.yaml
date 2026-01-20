@@ -5,29 +5,46 @@ data:
   img_size: [768, 576] # [768, 576],  [1024, 768], [1536, 1152]
 
 model:
-  name: "deeplabv3_resnet50"
+  # 지원 모델: DeepLabV3Plus, UnetPlusPlus, MAnet, PAN, PSPNet
+  name: "DeepLabV3Plus"
+
+  # CNN Encoders: resnet50, resnet101, efficientnet-b0/b4/b7
+  # Transformer Encoders: mit_b0~b5, tu-swin_tiny/small/base_patch4_window7_224
+  encoder: "resnet101"
   pretrained: true
 
 training:
-  batch_size: 8
-  accumulation_steps: 2
-  epochs: 80
+  batch_size: 16
+  accumulation_steps: 3
+  epochs: 100
   lr: 0.001
   weight_decay: 0.0001
-  dropout: 0.1
-  early_stop: 10  # patience (0이면 비활성화)
-  num_workers: 4
+  dropout: 0.2
+  early_stop: 15  # patience (0이면 비활성화)
+  num_workers: 8
+  scheduler:
+    enabled: true  # 스케줄러 사용 여부
+    type: "cosine"  # cosine, step
+    min_lr: 0.00001  # cosine: 최소 learning rate
+    # step_size: 30  # step: 감소 주기 (epochs)
+    # gamma: 0.1     # step: 감소 비율
 
 checkpoint:
   dir: "checkpoints"
-  exp_name: "exp1"  # 저장 경로: checkpoints/{model_name}_{exp_name}/
+  exp_name: "class_weight_exp2"  # 저장 경로: checkpoints/{model_name}_{exp_name}/
 
 loss:
-  type: "ce+dice"  # ce, dice, focal, jaccard, lovasz, ce+dice 등
+  type: "ce+dice"  # ce, dice, focal, ce+dice, focal+dice 등 # focal+dice 로 실험해볼것
   weights:
     ce: 0.5
     dice: 0.5
   ignore_index: 255
+  focal_gamma: 2.0  # Focal Loss gamma (focal, focal+dice 사용 시)
+  class_weights:
+    enabled: true  # 클래스 가중치 사용 여부
+    method: "effective"  # inverse, effective, sqrt_inverse
+    beta: 0.999  # effective 방식에서 사용
+    normalize: true  # 정규화 여부
 
 # lane:
 #   classes: ["white_lane", "yellow_lane", "blue_lane"]
@@ -35,6 +52,6 @@ loss:
 wandb:
   enabled: true
   project: "Road_Lane_Segmentation"
-  run_name: "baseline"  # 최종: {model_name}-{run_name} (예: deeplabv3_resnet50-baseline)
+  run_name: "class_weight_exp2"  # 최종: {model_name}-{run_name} (예: deeplabv3_resnet50-baseline)
   tags: ["deeplabv3", "segmentation"]
   num_samples: 2  # W&B에 시각화할 샘플 개수
