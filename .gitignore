@@ -5,7 +5,6 @@ Thumbs.db
 # Environment
 .env
 .env.local
-.env.*
 
 # Python
 .venv/
