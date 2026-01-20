@@ -4,16 +4,14 @@ from pathlib import Path
 from typing import Optional, Dict
 from torch.utils.data import DataLoader
 from tqdm import tqdm
-from torchmetrics.classification import (
-    MulticlassJaccardIndex, MulticlassAccuracy, MulticlassF1Score
-)
 
 # project root
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.append(str(PROJECT_ROOT))
 
 from src.data import DatasetLoader, get_transforms
-from src.models import get_model
+from src.models import get_model_from_config
+from src.models.metrics import SegmentationMetrics
 from src.utils import load_config, get_device, setup_logger
 
 
@@ -87,63 +85,48 @@ class Evaluator:
 
     def setup_model(self):
         """모델 로드"""
-        model_name = self.model_cfg.get("name", "deeplabv3_resnet50")
-        dropout = self.train_cfg.get("dropout", 0.0)
+        # Config에 num_classes 추가
+        self.config["data"]["num_classes"] = self.num_classes
+        # pretrained=False로 설정 (체크포인트에서 로드하므로)
+        self.config["model"]["pretrained"] = False
 
-        self.model = get_model(
-            name=model_name,
-            num_classes=self.num_classes,
-            pretrained=False,
-            dropout=dropout
-        ).to(self.device)
+        self.model = get_model_from_config(self.config).to(self.device)
 
         self.model.load_state_dict(self.checkpoint["model"])
         self.model.eval()
 
-        self.logger.info(f"Model: {model_name}")
+        # 모델 정보 로깅
+        model_info = self.model.get_info()
+        self.logger.info(
+            f"Model: {model_info['model_name']} + {model_info['encoder_name']} "
+            f"({model_info['total_params_M']}M params)"
+        )
         self.logger.info(f"Checkpoint: {self.checkpoint_path}")
 
     @torch.no_grad()
     def evaluate(self) -> Dict[str, float]:
-        """모델 평가"""
+        """모델 평가 (Memory-Efficient SegmentationMetrics 사용)"""
         self.model.eval()
 
-        # Metrics 초기화 (ignore_index=255로 무시할 픽셀 처리)
+        # Memory-Efficient Metrics (for 루프로 클래스별 계산)
         ignore_index = self.config.get("loss", {}).get("ignore_index", 255)
-
-        miou_metric = MulticlassJaccardIndex(
-            num_classes=self.num_classes, average="macro", ignore_index=ignore_index
-        ).to(self.device)
-        acc_metric = MulticlassAccuracy(
-            num_classes=self.num_classes, average="macro", ignore_index=ignore_index
-        ).to(self.device)
-        dice_metric = MulticlassF1Score(
-            num_classes=self.num_classes, average="macro", ignore_index=ignore_index
-        ).to(self.device)
+        metrics_calculator = SegmentationMetrics(
+            num_classes=self.num_classes,
+            ignore_index=ignore_index,
+            device=self.device
+        )
 
         for images, masks in tqdm(self.dataloader, desc="Evaluating"):
             images = images.to(self.device)
             masks = masks.to(self.device)
 
             outputs = self.model(images)["out"]
-            pred_labels = outputs.argmax(dim=1)
 
-            # ignore_index(255) 픽셀 제외 - torchmetrics bincount 버퍼 오버플로우 방지
-            valid_mask = (masks != ignore_index)
+            # Memory-efficient 메트릭 업데이트
+            metrics_calculator.update(outputs, masks)
 
-            if valid_mask.sum() > 0:
-                valid_preds = pred_labels[valid_mask]
-                valid_targets = masks[valid_mask]
-
-                miou_metric.update(valid_preds, valid_targets)
-                acc_metric.update(valid_preds, valid_targets)
-                dice_metric.update(valid_preds, valid_targets)
-
-        metrics = {
-            "miou": miou_metric.compute().item(),
-            "accuracy": acc_metric.compute().item(),
-            "dice": dice_metric.compute().item(),
-        }
+        # 최종 메트릭 계산
+        metrics = metrics_calculator.compute()
 
         self.logger.info(
             f"Evaluation Results | "

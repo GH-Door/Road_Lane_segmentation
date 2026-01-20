@@ -6,9 +6,9 @@ from tqdm import tqdm
 from torch.utils.data import DataLoader
 
 from src.models import DeepLabV3Plus
+from src.models.metrics import calculate_all_metrics
 from src.data import TestDatasetLoader, get_transforms
 from src.utils import load_config, get_device
-from src.utils.metrics import calculate_all_metrics
 
 
 class Evaluator:

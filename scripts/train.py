@@ -11,13 +11,12 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.append(str(PROJECT_ROOT))
 
 from src.data import DatasetLoader, get_transforms
-from src.models import DeepLabV3Plus
+from src.models import get_model_from_config
 from src.models.losses import get_loss
+from src.models.class_weights import get_class_weights
+from src.models.metrics import SegmentationMetrics
 from src.utils import load_config, get_device, setup_logger
 from src.utils.wandbs import login_wandb, log_validation_predictions
-from torchmetrics.classification import (
-    MulticlassJaccardIndex, MulticlassAccuracy, MulticlassF1Score
-)
 
 
 class Trainer:
@@ -42,11 +41,13 @@ class Trainer:
         self.wandb_num_samples = self.wandb_cfg.get("num_samples", 2)
         self.ckpt_cfg = self.config.get("checkpoint", {})
 
-        # 체크포인트 경로 설정: {dir}/{model_name}_{exp_name}/
-        model_name = self.model_cfg.get("name", "deeplabv3_resnet50")
-        exp_name = self.ckpt_cfg.get("exp_name", "exp1")
+        # 체크포인트 경로 설정: {dir}/{model_name}_{encoder}_{exp_name}/
+        model_name = self.model_cfg.get("name", "DeepLabV3Plus")
+        encoder_name = self.model_cfg.get("encoder", "resnet101")
+        exp_name = self.ckpt_cfg.get("exp_name", "")
         ckpt_dir = self.ckpt_cfg.get("dir", "checkpoints")
-        self.checkpoint_dir = Path(ckpt_dir) / f"{model_name}_{exp_name}"
+        folder_name = f"{model_name}_{encoder_name}_{exp_name}" if exp_name else f"{model_name}_{encoder_name}"
+        self.checkpoint_dir = Path(ckpt_dir) / folder_name
 
         self.accumulation_steps = self.train_cfg.get("accumulation_steps", 1)
         if self.accumulation_steps > 1:
@@ -100,25 +101,37 @@ class Trainer:
 
     def setup_model(self):
         """모델 초기화"""
-        model_name = self.model_cfg.get("name", "deeplabv3_resnet50")
-        pretrained = self.model_cfg.get("pretrained", True)
-        dropout = self.train_cfg.get("dropout", 0.0)
+        # Config에 num_classes 추가 (get_model_from_config에서 사용)
+        self.config["data"]["num_classes"] = self.num_classes
 
-        self.model = DeepLabV3Plus(
+        self.model = get_model_from_config(self.config).to(self.device)
+
+        # 모델 정보 로깅
+        model_info = self.model.get_info()
+        self.logger.info(
+            f"Model: {model_info['model_name']} + {model_info['encoder_name']} "
+            f"({model_info['encoder_type']}, {model_info['total_params_M']}M params)"
+        )
+
+        # Class weights 로드 (config에서 enabled=true인 경우)
+        class_weight = get_class_weights(
+            config=self.config,
             num_classes=self.num_classes,
-            backbone=model_name,
-            pretrained=pretrained,
-            dropout=dropout
-        ).to(self.device)
+            data_root=self.data_cfg.get("root")
+        )
+        if class_weight is not None:
+            class_weight = class_weight.to(self.device)
+            self.logger.info(f"Class weights enabled (method: {self.config['loss']['class_weights']['method']})")
 
         # config에서 loss 설정 로드
-        self.criterion = get_loss(self.config, self.num_classes)
+        self.criterion = get_loss(self.config, self.num_classes, class_weight)
         self.logger.info(f"Loss: {self.criterion.loss_type}")
 
     def setup_optimizer(self):
-        """옵티마이저 초기화"""
+        """옵티마이저 및 스케줄러 초기화"""
         lr = self.train_cfg.get("lr", 0.001)
         weight_decay = self.train_cfg.get("weight_decay", 0.0001)
+        self.epochs = self.train_cfg.get("epochs", 100)
 
         self.optimizer = torch.optim.AdamW(
             self.model.parameters(),
@@ -126,7 +139,32 @@ class Trainer:
             weight_decay=weight_decay
         )
 
-        self.epochs = self.train_cfg.get("epochs", 100)
+        # LR Scheduler 설정
+        scheduler_cfg = self.train_cfg.get("scheduler", {})
+        scheduler_enabled = scheduler_cfg.get("enabled", False)
+        scheduler_type = scheduler_cfg.get("type", "cosine")
+
+        self.scheduler = None
+        self.scheduler_name = None
+
+        if scheduler_enabled:
+            if scheduler_type == "cosine":
+                self.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+                    self.optimizer,
+                    T_max=scheduler_cfg.get("T_max", self.epochs),
+                    eta_min=scheduler_cfg.get("min_lr", 1e-6)
+                )
+                self.scheduler_name = f"CosineAnnealingLR(min_lr={scheduler_cfg.get('min_lr', 1e-6)})"
+            elif scheduler_type == "step":
+                self.scheduler = torch.optim.lr_scheduler.StepLR(
+                    self.optimizer,
+                    step_size=scheduler_cfg.get("step_size", 30),
+                    gamma=scheduler_cfg.get("gamma", 0.1)
+                )
+                self.scheduler_name = f"StepLR(step={scheduler_cfg.get('step_size', 30)}, gamma={scheduler_cfg.get('gamma', 0.1)})"
+
+            if self.scheduler:
+                self.logger.info(f"Scheduler: {self.scheduler_name}")
 
     def setup_wandb(self):
         """W&B 초기화"""
@@ -137,13 +175,19 @@ class Trainer:
 
         login_wandb()
 
-        # run_name: {model_name}-{run_name}
-        model_name = self.model_cfg.get("name", "deeplabv3")
+        # run_name: {model_name}_{encoder}-{run_name}
+        model_name = self.model_cfg.get("name", "DeepLabV3Plus")
+        encoder_name = self.model_cfg.get("encoder", "resnet101")
         suffix = self.wandb_cfg.get("run_name", "exp")
-        run_name = f"{model_name}-{suffix}"
+        run_name = f"{model_name}_{encoder_name}-{suffix}"
 
         # 모델 파라미터 수 계산 (백만 단위)
         total_params = round(sum(p.numel() for p in self.model.parameters()) / 1e6, 2)
+
+        # Class weights 설정 정보
+        loss_cfg = self.config.get("loss", {})
+        cw_cfg = loss_cfg.get("class_weights", {})
+        class_weights_info = cw_cfg.get("method", "none") if cw_cfg.get("enabled", False) else "none"
 
         wandb.init(
             project=self.wandb_cfg.get("project", "Road_Lane_Segmentation"),
@@ -152,6 +196,7 @@ class Trainer:
             config={
                 # 모델
                 "model_name": model_name,
+                "encoder_name": encoder_name,
                 "pretrained": self.model_cfg.get("pretrained", True),
                 "num_classes": self.num_classes,
                 "total_params_M": total_params,
@@ -164,8 +209,11 @@ class Trainer:
                 "weight_decay": self.train_cfg.get("weight_decay"),
                 "dropout": self.train_cfg.get("dropout", 0.0),
                 "patience": self.train_cfg.get("early_stop", 0),
+                # Scheduler
+                "scheduler": self.scheduler_name if self.scheduler_name else "none",
                 # Loss
                 "loss_type": self.criterion.loss_type,
+                "class_weights": class_weights_info,
                 # 데이터
                 "img_size": self.data_cfg.get("img_size"),
                 # 환경
@@ -216,14 +264,17 @@ class Trainer:
 
     @torch.no_grad()
     def validate(self) -> dict:
-        """검증"""
+        """검증 (Memory-Efficient SegmentationMetrics 사용)"""
         self.model.eval()
         total_loss = 0.0
-        
-        # torchmetrics 객체를 device로 이동
-        miou_metric = MulticlassJaccardIndex(num_classes=self.num_classes, average="macro").to(self.device)
-        acc_metric = MulticlassAccuracy(num_classes=self.num_classes, average="macro").to(self.device)
-        dice_metric = MulticlassF1Score(num_classes=self.num_classes, average="macro").to(self.device)  # F1 = Dice
+
+        # Memory-Efficient Metrics (for 루프로 클래스별 계산)
+        ignore_index = self.config.get("loss", {}).get("ignore_index", 255)
+        metrics_calculator = SegmentationMetrics(
+            num_classes=self.num_classes,
+            ignore_index=ignore_index,
+            device=self.device
+        )
 
         # 시각화를 위한 첫 배치 저장
         first_batch = None
@@ -239,21 +290,11 @@ class Trainer:
             loss = self.criterion(outputs, masks)
             total_loss += loss.item()
 
-            # 각 배치마다 GPU에서 바로 계산하여 상태 누적
-            pred_labels = outputs.argmax(dim=1)
-            miou_metric.update(pred_labels, masks)
-            acc_metric.update(pred_labels, masks)
-            dice_metric.update(pred_labels, masks)
+            # Memory-efficient 메트릭 업데이트
+            metrics_calculator.update(outputs, masks)
 
-        # 전체 데이터에 대한 최종 메트릭 계산
-        metrics = {
-            "miou": miou_metric.compute().item(),
-            "accuracy": acc_metric.compute().item(),
-            "dice": dice_metric.compute().item(),
-        }
-        miou_metric.reset()
-        acc_metric.reset()
-        dice_metric.reset()
+        # 최종 메트릭 계산
+        metrics = metrics_calculator.compute()
 
         return {
             "val_loss": total_loss / len(self.val_loader),
@@ -276,19 +317,28 @@ class Trainer:
             val_loss = val_metrics.pop("val_loss")
             val_images, val_masks = val_metrics.pop("first_batch")
 
+            # 현재 learning rate
+            current_lr = self.optimizer.param_groups[0]['lr']
+
             self.logger.info(
                 f"Epoch {epoch}/{self.epochs} | "
                 f"Train Loss: {train_loss:.4f} | "
                 f"Val Loss: {val_loss:.4f} | "
                 f"mIoU: {val_metrics['miou']:.4f} | "
                 f"Accuracy: {val_metrics['accuracy']:.4f} | "
-                f"Dice: {val_metrics['dice']:.4f}"
+                f"Dice: {val_metrics['dice']:.4f} | "
+                f"LR: {current_lr:.6f}"
             )
+
+            # Scheduler step (epoch 단위)
+            if self.scheduler is not None:
+                self.scheduler.step()
 
             # W&B 로깅
             log_data = {
                 "train_loss": train_loss,
                 "val_loss": val_loss,
+                "learning_rate": current_lr,
                 **val_metrics
             }
             
