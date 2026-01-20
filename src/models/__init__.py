@@ -1,17 +1,31 @@
-from .deeplabv3 import DeepLabV3Plus
-from .losses import SegmentationLoss
+# Legacy import (backward compatibility)
+from .deeplabv3 import DeepLabV3Plus as DeepLabV3PlusLegacy
 
-MODELS = {
-    "deeplabv3_resnet50": DeepLabV3Plus,
-    "deeplabv3_resnet101": DeepLabV3Plus,
-    # 추후 모델 추가 시:
-    # "segformer": SegFormer,
-    # "unet": UNet,
-}
+# New SMP-based models
+from .segmentation import (
+    SegmentationModel,
+    get_model,
+    get_model_from_config,
+    MODELS,
+    ENCODERS,
+)
+from .losses import SegmentationLoss, get_loss
 
+# Backward compatibility alias
+DeepLabV3Plus = SegmentationModel
 
-def get_model(name: str, num_classes: int, **kwargs):
-    """모델 이름으로 모델 인스턴스 반환"""
-    if name not in MODELS:
-        raise ValueError(f"Unknown model: {name}. Available: {list(MODELS.keys())}")
-    return MODELS[name](num_classes=num_classes, backbone=name, **kwargs)
+__all__ = [
+    # Models
+    "SegmentationModel",
+    "DeepLabV3Plus",
+    "DeepLabV3PlusLegacy",
+    # Functions
+    "get_model",
+    "get_model_from_config",
+    # Loss
+    "SegmentationLoss",
+    "get_loss",
+    # Registry
+    "MODELS",
+    "ENCODERS",
+]
