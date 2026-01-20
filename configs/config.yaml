@@ -1,0 +1,40 @@
+data:
+  root: "dataset/Multi_Camera_Semantic_Segmentation"
+  num_classes: 62
+  # 원본: 2048x1536 (4:3 비율)
+  img_size: [768, 576] # [768, 576],  [1024, 768], [1536, 1152]
+
+model:
+  name: "deeplabv3_resnet50"
+  pretrained: true
+
+training:
+  batch_size: 8
+  accumulation_steps: 2
+  epochs: 80
+  lr: 0.001
+  weight_decay: 0.0001
+  dropout: 0.1
+  early_stop: 10  # patience (0이면 비활성화)
+  num_workers: 4
+
+checkpoint:
+  dir: "checkpoints"
+  exp_name: "exp1"  # 저장 경로: checkpoints/{model_name}_{exp_name}/
+
+loss:
+  type: "ce+dice"  # ce, dice, focal, jaccard, lovasz, ce+dice 등
+  weights:
+    ce: 0.5
+    dice: 0.5
+  ignore_index: 255
+
+# lane:
+#   classes: ["white_lane", "yellow_lane", "blue_lane"]
+
+wandb:
+  enabled: true
+  project: "Road_Lane_Segmentation"
+  run_name: "baseline"  # 최종: {model_name}-{run_name} (예: deeplabv3_resnet50-baseline)
+  tags: ["deeplabv3", "segmentation"]
+  num_samples: 2  # W&B에 시각화할 샘플 개수
