@@ -7,9 +7,16 @@ from typing import Optional
 def setup_logger(
     name: str = "Road_Lane_segmentation",
     log_dir: Optional[str] = None,
-    log_level: str = "INFO"
+    log_level: str = "INFO",
+    log_prefix: Optional[str] = None
 ) -> logging.Logger:
-
+    """
+    Args:
+        name: 로거 이름
+        log_dir: 로그 저장 디렉토리
+        log_level: 로그 레벨
+        log_prefix: 로그 파일 prefix (없으면 name 사용)
+    """
     # 로그 디렉토리 설정
     if log_dir is None:
         log_dir = Path("logs")
@@ -17,9 +24,10 @@ def setup_logger(
         log_dir = Path(log_dir)
     log_dir.mkdir(parents=True, exist_ok=True)
 
-    # 로그 파일명 생성
+    # 로그 파일명 생성 (prefix가 없으면 name 사용)
+    prefix = log_prefix or name.lower()
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    log_file = log_dir / f"train_{timestamp}.log"
+    log_file = log_dir / f"{prefix}_{timestamp}.log"
 
     # 로거 설정
     logger = logging.getLogger(name)
@@ -37,17 +45,7 @@ def setup_logger(
     )
     file_handler.setFormatter(file_formatter)
 
-    # 콘솔 핸들러
-    console_handler = logging.StreamHandler()
-    console_handler.setLevel(getattr(logging, log_level.upper()))
-    console_formatter = logging.Formatter(
-        '%(asctime)s - %(levelname)s - %(message)s',
-        '%Y-%m-%d %H:%M:%S'
-    )
-    console_handler.setFormatter(console_formatter)
-
     # 핸들러 추가
     logger.addHandler(file_handler)
-    logger.addHandler(console_handler)
 
     return logger

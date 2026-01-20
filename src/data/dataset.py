@@ -2,15 +2,14 @@ import json
 import glob
 import numpy as np
 import cv2
+import pandas as pd
+import torch
 from pathlib import Path
 from typing import Optional, Tuple, List, Dict
 from tqdm import tqdm
-import pandas as pd
-import torch
 from torch.utils.data import Dataset
 
-
-class DataLoader(Dataset):
+class DatasetLoader(Dataset):
     """Multi-Camera Semantic Segmentation Dataset"""
     def __init__(
         self,
@@ -18,7 +17,7 @@ class DataLoader(Dataset):
         split: str = "train",
         camera: str = "left",
         transform=None,
-        img_size: Tuple[int, int] = (512, 1024),
+        class_info_path: Optional[str] = None,
     ):
         """
         Args:
@@ -26,13 +25,13 @@ class DataLoader(Dataset):
             split: 'train' or 'val'
             camera: 'left' or 'right'
             transform: albumentations transform
-            img_size: (height, width)
+            class_info_path: 클래스 정보 CSV 파일 경로 (지정하지 않으면 data_root에서 찾음)
         """
         self.data_root = Path(data_root)
         self.split = split
         self.camera = camera
         self.transform = transform
-        self.img_size = img_size
+        self.class_info_path = class_info_path
 
         # 경로 설정
         self.labels_dir = self.data_root / "labels" / split
@@ -47,15 +46,18 @@ class DataLoader(Dataset):
 
     def load_classes(self) -> Dict[str, int]:
         """클래스 라벨 → ID 매핑 (CSV에서 로드)"""
-        csv_path = self.data_root / "class_info.csv"
+        if self.class_info_path:
+            csv_path = Path(self.class_info_path)
+        else:
+            csv_path = self.data_root / "class_info.csv"
 
         if csv_path.exists():
             class_df = pd.read_csv(csv_path)
             classes = dict(zip(class_df['class_name'], class_df['class_id']))
         else:
             # CSV 없으면 생성
-            print(f"class_info.csv not found. Generating...")
-            class_df = generate_class_info(self.data_root, save=True)
+            print(f"{csv_path} not found. Generating from {self.data_root}...")
+            class_df = generate_class_info(str(self.data_root), save=True)
             classes = dict(zip(class_df['class_name'], class_df['class_id']))
 
         return classes
@@ -129,15 +131,11 @@ class DataLoader(Dataset):
         orig_h, orig_w = annotation["imgHeight"], annotation["imgWidth"]
         mask = self.polygon_to_mask(annotation, (orig_h, orig_w))
 
-        # 리사이즈
-        img = cv2.resize(img, (self.img_size[1], self.img_size[0]))
-        mask = cv2.resize(mask, (self.img_size[1], self.img_size[0]), interpolation=cv2.INTER_NEAREST)
-
         # Transform 적용
         if self.transform:
             transformed = self.transform(image=img, mask=mask)
             img = transformed["image"]
-            mask = transformed["mask"]
+            mask = transformed["mask"].long()
         else:
             img = torch.from_numpy(img).permute(2, 0, 1).float() / 255.0
             mask = torch.from_numpy(mask).long()
@@ -161,7 +159,7 @@ def get_dataloader(
     if shuffle is None:
         shuffle = (split == "train")
 
-    dataset = DataLoader(
+    dataset = DatasetLoader(
         data_root=data_root,
         split=split,
         transform=transform,
@@ -177,9 +175,7 @@ def get_dataloader(
 
 
 def generate_class_info(data_root: str, save: bool = True) -> pd.DataFrame:
-    """
-    JSON 파일들에서 클래스 정보 추출 후 CSV 저장
-    """
+    """JSON 파일들에서 클래스 정보 추출 후 CSV 저장"""
     from collections import Counter
 
     data_root = Path(data_root)
@@ -210,11 +206,8 @@ def generate_class_info(data_root: str, save: bool = True) -> pd.DataFrame:
     # CSV 저장
     if save:
         csv_path = data_root / "class_info.csv"
-        if data_root.exists():
-            class_df.to_csv(str(csv_path), index=False)
-            print(f"Saved: {csv_path}")
-        else:
-            print(f"Warning: Directory not found, CSV not saved: {data_root}")
+        class_df.to_csv(csv_path, index=False)
+        print(f"Saved: {csv_path}")
 
     return class_df
 
@@ -261,3 +254,31 @@ def get_dataset_info(data_root: str, split: str = "train") -> pd.DataFrame:
         })
 
     return pd.DataFrame(records)
+
+
+def split_dataset(dataset: DatasetLoader, test_ratio: float = 0.2, seed: int = 42):
+    """
+    Dataset을 train/test 또는 val/test로 분할
+
+    Args:
+        dataset: DatasetLoader 인스턴스
+        test_ratio: test 비율 (0.2 = 20%)
+        seed: random seed
+
+    Returns:
+        (train_dataset, test_dataset) 튜플
+    """
+    from sklearn.model_selection import train_test_split
+    from torch.utils.data import Subset
+
+    indices = list(range(len(dataset)))
+    train_idx, test_idx = train_test_split(
+        indices,
+        test_size=test_ratio,
+        random_state=seed
+    )
+
+    train_subset = Subset(dataset, train_idx)
+    test_subset = Subset(dataset, test_idx)
+
+    return train_subset, test_subset

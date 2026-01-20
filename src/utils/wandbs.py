@@ -1,5 +1,6 @@
 import os
 import logging
+import torch
 import wandb
 from dotenv import load_dotenv
 from pathlib import Path
@@ -52,10 +53,14 @@ def init_wandb(config: dict, model, device: str, gpu_name: str, exp_name: str):
         except Exception as e:
             logger.warning(f"Failed to update ultralytics settings: {e}")
 
+    # Calculate model parameters
+    total_params = sum(p.numel() for p in model.parameters())
+
     # W&B config dict
     wandb_config = {
         'model_type': model_cfg['type'],
         'model_size': model_cfg['size'],
+        'total_params': round(total_params / 1e6, 2),
         'pretrained': model_cfg.get('pretrained', True),
         'epochs': train_cfg['epochs'],
         'batch_size': train_cfg['batch_size'],
@@ -137,5 +142,55 @@ def log_best_metrics(model, results):
         wandb.config.update({'best_epoch': best_epoch, 'stopped_epoch': stopped_epoch}, allow_val_change=True)
 
         logger.info(f"Logged best metrics to W&B: {best_metrics}, best_epoch={best_epoch}, stopped_epoch={stopped_epoch}")
+
     except Exception as e:
         logger.warning(f"Failed to log best metrics: {e}")
+
+
+def log_validation_predictions(
+    images: torch.Tensor,
+    preds: torch.Tensor,
+    masks: torch.Tensor,
+    num_classes: int,
+    num_samples: int = 2
+) -> dict:
+    """검증 예측 결과를 W&B Image로 변환"""
+    import numpy as np
+    import matplotlib.pyplot as plt
+    from src.inference.visualize import mask_to_rgb
+    from src.data.transforms import MEAN, STD
+
+    # 배치에서 일부 샘플 선택
+    sample_images = images[:num_samples].cpu()
+    pred_masks = preds.argmax(dim=1)[:num_samples].cpu().numpy()
+    gt_masks = masks[:num_samples].cpu().numpy()
+
+    wandb_images = []
+    for i in range(num_samples):
+        img_tensor = sample_images[i].clone() # 원본 텐서 수정을 방지하기 위해 복사
+
+        # 역정규화 (De-normalization)
+        for c in range(3):
+            img_tensor[c] = img_tensor[c] * STD[c] + MEAN[c]
+
+        # Tensor to Numpy Image
+        img_np = img_tensor.numpy().transpose(1, 2, 0)
+        # Scale to [0, 255] and convert to uint8 to match color masks
+        img_np = (np.clip(img_np, 0, 1) * 255).astype(np.uint8)
+
+        pred_rgb = mask_to_rgb(pred_masks[i], num_classes)
+        gt_rgb = mask_to_rgb(gt_masks[i], num_classes)
+
+        # 이미지들을 가로로 연결
+        comparison = np.concatenate([img_np, gt_rgb, pred_rgb], axis=1)
+
+        wandb_images.append(
+            wandb.Image(
+                comparison,
+                caption=f"Sample {i+1}: Original | Ground Truth | Prediction"
+            )
+        )
+
+    return {"predictions": wandb_images}
+
+        
