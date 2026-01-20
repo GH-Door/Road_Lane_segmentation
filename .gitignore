@@ -42,6 +42,7 @@ logs/
 *.weights
 dataset/Multi_Camera_Semantic_Segmentation/
 dataset/Mono_Camera_Semantic_Segmentation
+*.csv
 
 # Misc
 *.bak
@@ -56,3 +57,7 @@ CLAUDE.md
 
 # models
 /checkpoints
+
+# google drive desktop
+.tmp.drivedownload
+.tmp.driveupload
