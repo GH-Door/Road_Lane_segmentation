@@ -20,6 +20,7 @@ class DatasetLoader(Dataset):
         class_info_path: Optional[str] = None,
         class_grouping: Optional[Dict[str, int]] = None,
         num_grouped_classes: Optional[int] = None,
+        train_batch_size: int = 1,
     ):
         """
         Args:
@@ -30,6 +31,7 @@ class DatasetLoader(Dataset):
             class_info_path: 클래스 정보 CSV 파일 경로 (지정하지 않으면 data_root에서 찾음)
             class_grouping: 클래스명 → 그룹ID 매핑 (그룹화 비활성화 시 None)
             num_grouped_classes: 그룹화 후 클래스 수 (그룹화 활성화 시 필수)
+            train_batch_size: 학습 배치 크기 (첫 배치 로딩 완료 로그용)
         """
         self.data_root = Path(data_root)
         self.split = split
@@ -38,6 +40,8 @@ class DatasetLoader(Dataset):
         self.class_info_path = class_info_path
         self.class_grouping = class_grouping  # 클래스명 → 그룹ID
         self.num_grouped_classes = num_grouped_classes
+        self.train_batch_size = train_batch_size
+
 
         # 경로 설정
         self.labels_dir = self.data_root / "labels" / split
@@ -101,6 +105,7 @@ class DatasetLoader(Dataset):
                 })
 
         print(f"{self.split.capitalize()} samples: {len(samples)}")
+
         return samples
 
     def load_json(self, json_path: str) -> dict:
@@ -138,29 +143,43 @@ class DatasetLoader(Dataset):
         return len(self.samples)
 
     def __getitem__(self, idx: int) -> Tuple[torch.Tensor, torch.Tensor]:
-        sample = self.samples[idx]
+        if idx == 0:
+            # Print only once for the first item requested by any worker.
+            print(f"INFO: DatasetLoader: Starting data processing for split '{self.split}' (first index: {idx}).")
 
-        # 이미지 로드 (한글 경로 지원)
-        img = cv2.imdecode(np.fromfile(sample["img_path"], dtype=np.uint8), cv2.IMREAD_COLOR)
-        if img is None:
-            raise FileNotFoundError(f"Cannot load image: {sample['img_path']}")
-        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        try:
+            sample = self.samples[idx]
 
-        # 라벨 로드 및 마스크 생성
-        annotation = self.load_json(sample["label_path"])
-        orig_h, orig_w = annotation["imgHeight"], annotation["imgWidth"]
-        mask = self.polygon_to_mask(annotation, (orig_h, orig_w))
+            # 이미지 로드 (한글 경로 지원)
+            img = cv2.imdecode(np.fromfile(sample["img_path"], dtype=np.uint8), cv2.IMREAD_COLOR)
+            if img is None:
+                raise FileNotFoundError(f"Cannot load image: {sample['img_path']}")
+            img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
 
-        # Transform 적용
-        if self.transform:
-            transformed = self.transform(image=img, mask=mask)
-            img = transformed["image"]
-            mask = transformed["mask"].long()
-        else:
-            img = torch.from_numpy(img).permute(2, 0, 1).float() / 255.0
-            mask = torch.from_numpy(mask).long()
+            # 라벨 로드 및 마스크 생성
+            annotation = self.load_json(sample["label_path"])
+            orig_h, orig_w = annotation["imgHeight"], annotation["imgWidth"]
+            mask = self.polygon_to_mask(annotation, (orig_h, orig_w))
 
-        return img, mask
+            # Transform 적용
+            if self.transform:
+                transformed = self.transform(image=img, mask=mask)
+                img = transformed["image"]
+                mask = transformed["mask"].long()
+            else:
+                img = torch.from_numpy(img).permute(2, 0, 1).float() / 255.0
+                mask = torch.from_numpy(mask).long()
+
+            if idx == self.train_batch_size - 1:
+                # Print only once after the last item of the first batch is processed.
+                print(f"INFO: DatasetLoader: First batch prepared for split '{self.split}'. Tqdm progress bar will appear shortly.")
+
+            return img, mask
+
+        except Exception as e:
+            # Raising the exception is important for the DataLoader to handle it.
+            print(f"ERROR: DatasetLoader: Failed to load item at Index: {idx} | File: {self.samples[idx]['img_path']} | Error: {str(e)}")
+            raise e
 
     def get_sample_info(self, idx: int) -> Dict:
         """샘플 정보 반환 (디버깅/시각화용)"""

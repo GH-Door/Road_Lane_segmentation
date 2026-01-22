@@ -3,7 +3,7 @@ import sys
 import torch
 import wandb
 from pathlib import Path
-from torch.utils.data import DataLoader as TorchDataLoader
+from torch.utils.data import DataLoader as TorchDataLoader, ConcatDataset
 from tqdm import tqdm
 
 # 프로젝트 루트 경로
@@ -62,38 +62,90 @@ class Trainer:
     def setup_data(self):
         """데이터로더 초기화"""
         data_root = self.data_cfg.get("root")
+        additional_roots = self.data_cfg.get("additional_roots", [])
         img_size = tuple(self.data_cfg.get("img_size", [1024, 768]))
-        batch_size = self.train_cfg.get("batch_size", 4)
+        self.train_batch_size = self.train_cfg.get("train_batch_size", 4)
+        self.eval_batch_size = self.train_cfg.get("eval_batch_size", self.train_batch_size * 2)
         num_workers = self.train_cfg.get("num_workers", 4)
 
         transform = get_transforms(img_size)
 
-        self.train_dataset = DatasetLoader(
+        # 클래스 그룹화 설정 (별도 파일에서 로드)
+        group_config_path = self.data_cfg.get("group_config")
+        self.grouping_enabled = False
+        class_grouping = None
+        num_grouped_classes = None
+        self.group_config = {}
+
+        if group_config_path:
+            self.group_config = load_config(group_config_path)
+            self.grouping_enabled = self.group_config.get("enabled", False)
+            if self.grouping_enabled:
+                class_grouping = self.group_config.get("mapping")
+                num_grouped_classes = self.group_config.get("num_classes")
+
+        # 통합 클래스 정보 CSV (Multi + Mono)
+        class_info_path = self.data_cfg.get("class_info")
+
+        # 메인 데이터셋
+        main_train = DatasetLoader(
             data_root=data_root,
             split="train",
-            transform=transform
+            transform=transform,
+            class_info_path=class_info_path,
+            class_grouping=class_grouping,
+            num_grouped_classes=num_grouped_classes,
+            train_batch_size=self.train_batch_size,
         )
         self.val_dataset = DatasetLoader(
             data_root=data_root,
             split="val",
-            transform=transform
+            transform=transform,
+            class_info_path=class_info_path,
+            class_grouping=class_grouping,
+            num_grouped_classes=num_grouped_classes,
+            train_batch_size=self.train_batch_size,
         )
 
-        self.num_classes = self.train_dataset.num_classes
+        # 추가 데이터셋 합치기 (train만)
+        train_datasets = [main_train]
+        for add_root in additional_roots:
+            add_dataset = DatasetLoader(
+                data_root=add_root,
+                split="train",
+                transform=transform,
+                class_info_path=class_info_path,
+                class_grouping=class_grouping,
+                num_grouped_classes=num_grouped_classes,
+                train_batch_size=self.train_batch_size,
+            )
+            train_datasets.append(add_dataset)
+            self.logger.info(f"Added dataset: {add_root} ({len(add_dataset)} samples)")
+
+        # ConcatDataset으로 합치기
+        if len(train_datasets) > 1:
+            self.train_dataset = ConcatDataset(train_datasets)
+            self.logger.info(f"Total train samples: {len(self.train_dataset)}")
+        else:
+            self.train_dataset = main_train
+
+        self.num_classes = main_train.num_classes
+        if self.grouping_enabled:
+            self.logger.info(f"Class grouping enabled: {num_grouped_classes} groups")
 
         # MPS에서는 pin_memory 지원 안 됨
         use_pin_memory = self.device.type == "cuda"
 
         self.train_loader = TorchDataLoader(
             self.train_dataset,
-            batch_size=batch_size,
+            batch_size=self.train_batch_size,
             shuffle=True,
             num_workers=num_workers,
             pin_memory=use_pin_memory
         )
         self.val_loader = TorchDataLoader(
             self.val_dataset,
-            batch_size=batch_size,
+            batch_size=self.eval_batch_size,
             shuffle=False,
             num_workers=num_workers,
             pin_memory=use_pin_memory
@@ -117,7 +169,8 @@ class Trainer:
         class_weight = get_class_weights(
             config=self.config,
             num_classes=self.num_classes,
-            data_root=self.data_cfg.get("root")
+            data_root=self.data_cfg.get("root"),
+            group_config=self.group_config
         )
         if class_weight is not None:
             class_weight = class_weight.to(self.device)
@@ -187,7 +240,30 @@ class Trainer:
         # Class weights 설정 정보
         loss_cfg = self.config.get("loss", {})
         cw_cfg = loss_cfg.get("class_weights", {})
-        class_weights_info = cw_cfg.get("method", "none") if cw_cfg.get("enabled", False) else "none"
+        class_weights_method = cw_cfg.get("method", "none") if cw_cfg.get("enabled", False) else "none"
+
+        # Manual boost 설정 정보
+        manual_boost_cfg = cw_cfg.get("manual_boost", {})
+        boost_enabled = manual_boost_cfg.get("enabled", False)
+        boost_up_classes = []    # 중요도 증가 (multiplier > 1.0)
+        boost_down_classes = []  # 중요도 감소 (multiplier < 1.0)
+
+        if boost_enabled:
+            multipliers = manual_boost_cfg.get("multipliers", {})
+            for cls_id, mult in multipliers.items():
+                cls_id = int(cls_id)
+                mult = float(mult)
+                if mult > 1.0:
+                    boost_up_classes.append(cls_id)
+                elif mult < 1.0:
+                    boost_down_classes.append(cls_id)
+
+        # 클래스 그룹화 정보 (별도 파일에서 로드됨)
+        grouping_enabled = self.grouping_enabled
+        num_grouped_classes = self.group_config.get("num_classes", 0) if grouping_enabled else 0
+
+        # 추가 데이터셋 정보
+        additional_roots = self.data_cfg.get("additional_roots", [])
 
         wandb.init(
             project=self.wandb_cfg.get("project", "Road_Lane_Segmentation"),
@@ -202,9 +278,10 @@ class Trainer:
                 "total_params_M": total_params,
                 # 학습 하이퍼파라미터
                 "epochs": self.train_cfg.get("epochs"),
-                "batch_size": self.train_cfg.get("batch_size"),
+                "train_batch_size": self.train_batch_size,
+                "eval_batch_size": self.eval_batch_size,
                 "accumulation_steps": self.accumulation_steps,
-                "effective_batch_size": self.train_cfg.get("batch_size") * self.accumulation_steps,
+                "effective_batch_size": self.train_batch_size * self.accumulation_steps,
                 "lr": self.train_cfg.get("lr"),
                 "weight_decay": self.train_cfg.get("weight_decay"),
                 "dropout": self.train_cfg.get("dropout", 0.0),
@@ -213,9 +290,19 @@ class Trainer:
                 "scheduler": self.scheduler_name if self.scheduler_name else "none",
                 # Loss
                 "loss_type": self.criterion.loss_type,
-                "class_weights": class_weights_info,
+                "class_weights": class_weights_method,
+                # Manual Boost (핵심 정보만)
+                "manual_boost_enabled": boost_enabled,
+                "boost_up_classes": boost_up_classes if boost_up_classes else "none",
+                "boost_down_classes": boost_down_classes if boost_down_classes else "none",
                 # 데이터
                 "img_size": self.data_cfg.get("img_size"),
+                "data_root": self.data_cfg.get("root"),
+                "additional_datasets": additional_roots if additional_roots else "none",
+                "total_train_samples": len(self.train_dataset),
+                # 클래스 그룹화
+                "class_grouping_enabled": grouping_enabled,
+                "num_grouped_classes": num_grouped_classes if grouping_enabled else "N/A",
                 # 환경
                 "device": str(self.device),
                 "gpu_name": torch.cuda.get_device_name(0) if torch.cuda.is_available() else "CPU"

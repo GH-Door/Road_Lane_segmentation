@@ -38,7 +38,7 @@ class Evaluator:
         self.class_info_path = class_info_path
 
         # 체크포인트 로드
-        self.checkpoint = torch.load(checkpoint_path, map_location=self.device)
+        self.checkpoint = torch.load(checkpoint_path, map_location=self.device, weights_only=False) # weights_only=False
 
         # Config 로드
         self.config = load_config(config_path)
