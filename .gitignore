@@ -41,6 +41,7 @@ logs/
 *.weights
 dataset/Multi_Camera_Semantic_Segmentation/
 dataset/Mono_Camera_Semantic_Segmentation
+dataset/inference_img/
 *.csv
 
 # Misc
@@ -50,6 +51,9 @@ dataset/Mono_Camera_Semantic_Segmentation
 # cluade
 *.claude
 CLAUDE.md
+
+# gemini
+GEMINI.md
 
 # wandb
 /wandb
@@ -63,3 +67,6 @@ CLAUDE.md
 
 # Google Drive Icons
 Icon?
+
+# inference
+inference/
