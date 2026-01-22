@@ -69,4 +69,5 @@ GEMINI.md
 Icon?
 
 # inference
-inference/
+/inference/
+!/src/inference/
