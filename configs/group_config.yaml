@@ -1,0 +1,133 @@
+# 클래스 그룹화 설정
+# 원본 62개 클래스 → 20개 그룹으로 매핑
+
+enabled: true
+num_classes: 20  # 그룹화 후 클래스 수
+
+# 그룹 이름 정의 (시각화/로깅용)
+group_names:
+  0: "ignore"           # 무시 영역
+  1: "road"             # 일반 주행 도로
+  2: "tunnel"           # 터널
+  3: "center_line"      # 중앙선 (황색)
+  4: "white_dot"        # 흰색 점선
+  5: "white_solid"      # 흰색 실선
+  6: "stop_crosswalk"   # 정지선/횡단보도
+  7: "road_mark"        # 노면 기호
+  8: "guidance"         # 유도선
+  9: "traffic_sign"     # 신호등/표지판
+  10: "pole"            # 전봇대
+  11: "guard_rail"      # 가드레일
+  12: "curb"            # 보도 경계 (턱)
+  13: "sidewalk"        # 보도
+  14: "vehicle"         # 차량 그룹
+  15: "person"          # 보행자
+  16: "sky"             # 하늘
+  17: "vegetation"      # 나무/수풀
+  18: "building"        # 건물
+  19: "wall"            # 벽
+
+# 클래스명 → 그룹ID 매핑
+mapping:
+  # [그룹 0] 무시 영역 (LOW_COUNT + 기타)
+  motorcycle: 0
+  terrain: 0
+  "number 4": 0
+  ground animal: 0
+  water: 0
+  "number 3": 0
+  train: 0
+  leftU-forward: 0
+  rider: 0
+  fence: 0
+  "number 7": 0
+  right-forward: 0
+  trailer: 0
+  "number 1": 0
+  polegroup: 0
+  rail track: 0
+  "number 5": 0
+  "number 2": 0
+  "number 8": 0
+  off road: 0
+  out of roi: 0
+  "etc.": 0
+  caravan: 0
+  left-forward: 0
+  speed bump: 0
+  "prohibition (X mark)": 0
+  static: 0
+  dynamic: 0
+  ego vehicle: 0
+
+  # [그룹 1] 일반 주행 도로
+  road: 1
+  bridge: 1
+  ground: 1
+
+  # [그룹 2] 터널
+  tunnel: 2
+
+  # [그룹 3] 중앙선 (황색)
+  yesol: 3
+  yedot: 3
+
+  # [그룹 4] 흰색 점선
+  whdot: 4
+  bldot: 4
+
+  # [그룹 5] 흰색 실선
+  whsol: 5
+  blsol: 5
+
+  # [그룹 6] 정지선/횡단보도
+  stop line: 6
+  crosswalk: 6
+
+  # [그룹 7] 노면 기호
+  general road mark: 7
+  parking: 7
+  forward: 7
+  left: 7
+  right: 7
+  leftU: 7
+  protection zone: 7
+
+  # [그룹 8] 유도선
+  guidance line: 8
+
+  # [그룹 9] 신호등/표지판
+  traffic light: 9
+  traffic sign: 9
+
+  # [그룹 10] 전봇대
+  pole: 10
+
+  # [그룹 11] 가드레일
+  guard rail: 11
+
+  # [그룹 12] 보도 경계 (턱)
+  curb: 12
+
+  # [그룹 13] 보도
+  sidewalk: 13
+
+  # [그룹 14] 차량 그룹
+  car: 14
+  truck: 14
+  bus: 14
+
+  # [그룹 15] 보행자
+  person: 15
+
+  # [그룹 16] 하늘
+  sky: 16
+
+  # [그룹 17] 나무/수풀
+  vegetation: 17
+
+  # [그룹 18] 건물
+  building: 18
+
+  # [그룹 19] 벽
+  wall: 19

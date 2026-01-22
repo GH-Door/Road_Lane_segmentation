@@ -1,57 +1,78 @@
+# Data
 data:
   root: "dataset/Multi_Camera_Semantic_Segmentation"
-  num_classes: 62
-  # 원본: 2048x1536 (4:3 비율)
-  img_size: [768, 576] # [768, 576],  [1024, 768], [1536, 1152]
+  additional_roots:
+    - "dataset/Mono_Camera_Semantic_Segmentation"
+  class_info: "dataset/total_class_info.csv"
+  img_size: [768, 576]
+  group_config: "configs/group_config.yaml"
 
+# Model
+# name: DeepLabV3Plus, UnetPlusPlus, MAnet, PAN, PSPNet
+# encoder: resnet50, resnet101, efficientnet-b0/b4/b7, mit_b0~b5
 model:
-  # 지원 모델: DeepLabV3Plus, UnetPlusPlus, MAnet, PAN, PSPNet
-  name: "DeepLabV3Plus"
-
-  # CNN Encoders: resnet50, resnet101, efficientnet-b0/b4/b7
-  # Transformer Encoders: mit_b0~b5, tu-swin_tiny/small/base_patch4_window7_224
-  encoder: "resnet101"
+  name: "UnetPlusPlus"
+  encoder: "efficientnet-b4"
   pretrained: true
 
+# Training
 training:
-  batch_size: 16
-  accumulation_steps: 3
+  train_batch_size: 32
+  eval_batch_size: 64
+  accumulation_steps: 2
   epochs: 100
-  lr: 0.001
+  lr: 0.0006
   weight_decay: 0.0001
   dropout: 0.2
-  early_stop: 15  # patience (0이면 비활성화)
-  num_workers: 8
+  early_stop: 10
+  num_workers: 10
   scheduler:
-    enabled: true  # 스케줄러 사용 여부
+    enabled: true
     type: "cosine"  # cosine, step
-    min_lr: 0.00001  # cosine: 최소 learning rate
-    # step_size: 30  # step: 감소 주기 (epochs)
-    # gamma: 0.1     # step: 감소 비율
+    min_lr: 0.000005
 
+# Checkpoint
 checkpoint:
   dir: "checkpoints"
-  exp_name: "class_weight_exp2"  # 저장 경로: checkpoints/{model_name}_{exp_name}/
+  exp_name: "Merge_Data_base"
 
+# Loss
+# type: ce, dice, focal, ce+dice, focal+dice
 loss:
-  type: "ce+dice"  # ce, dice, focal, ce+dice, focal+dice 등 # focal+dice 로 실험해볼것
+  type: "focal+dice"
   weights:
-    ce: 0.5
+    focal: 0.5
     dice: 0.5
   ignore_index: 255
-  focal_gamma: 2.0  # Focal Loss gamma (focal, focal+dice 사용 시)
+  focal_gamma: 2.0
   class_weights:
-    enabled: true  # 클래스 가중치 사용 여부
-    method: "effective"  # inverse, effective, sqrt_inverse
-    beta: 0.999  # effective 방식에서 사용
-    normalize: true  # 정규화 여부
+    enabled: true
+    method: "inverse"  # inverse, effective, sqrt_inverse
+    beta: 0.999
+    normalize: true
+    manual_boost:
+      enabled: true
+      multipliers:
+        0: 0.2    # 무시/자차
+        1: 0.5    # 도로
+        3: 6.0    # 중앙선
+        4: 5.0    # 점선
+        5: 5.0    # 실선
+        6: 8.0    # 정지선/횡단보도
+        8: 15.0   # 유도선
+        9: 3.0    # 신호등/표지판
+        10: 2.0   # 전봇대
+        11: 4.0   # 가드레일
+        12: 7.0   # 보도경계
+        13: 1.5   # 보도
+        14: 3.0   # 차량
+        15: 7.0   # 보행자
+        16: 0.2   # 하늘
 
-# lane:
-#   classes: ["white_lane", "yellow_lane", "blue_lane"]
-
+# W&B
 wandb:
   enabled: true
   project: "Road_Lane_Segmentation"
-  run_name: "class_weight_exp2"  # 최종: {model_name}-{run_name} (예: deeplabv3_resnet50-baseline)
-  tags: ["deeplabv3", "segmentation"]
-  num_samples: 2  # W&B에 시각화할 샘플 개수
+  run_name: "Merge_Data_base"
+  tags: ["UnetPlusPlus", "segmentation", "focal+dice", "efficientnet-b4", "multi+mono"]
+  num_samples: 2
