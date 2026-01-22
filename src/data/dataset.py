@@ -18,6 +18,8 @@ class DatasetLoader(Dataset):
         camera: str = "left",
         transform=None,
         class_info_path: Optional[str] = None,
+        class_grouping: Optional[Dict[str, int]] = None,
+        num_grouped_classes: Optional[int] = None,
     ):
         """
         Args:
@@ -26,20 +28,29 @@ class DatasetLoader(Dataset):
             camera: 'left' or 'right'
             transform: albumentations transform
             class_info_path: 클래스 정보 CSV 파일 경로 (지정하지 않으면 data_root에서 찾음)
+            class_grouping: 클래스명 → 그룹ID 매핑 (그룹화 비활성화 시 None)
+            num_grouped_classes: 그룹화 후 클래스 수 (그룹화 활성화 시 필수)
         """
         self.data_root = Path(data_root)
         self.split = split
         self.camera = camera
         self.transform = transform
         self.class_info_path = class_info_path
+        self.class_grouping = class_grouping  # 클래스명 → 그룹ID
+        self.num_grouped_classes = num_grouped_classes
 
         # 경로 설정
         self.labels_dir = self.data_root / "labels" / split
         self.img_dir = self.data_root / f"{camera}Img" / split
 
-        # 클래스 매핑 로드
+        # 클래스 매핑 로드 (원본 클래스명 → 원본 ID)
         self.classes = self.load_classes()
-        self.num_classes = len(self.classes)
+
+        # 그룹화 활성화 시 num_classes는 그룹 수, 아니면 원본 클래스 수
+        if self.class_grouping and self.num_grouped_classes:
+            self.num_classes = self.num_grouped_classes
+        else:
+            self.num_classes = len(self.classes)
 
         # 파일 목록 로드
         self.samples = self.load_samples()
@@ -53,7 +64,11 @@ class DatasetLoader(Dataset):
 
         if csv_path.exists():
             class_df = pd.read_csv(csv_path)
-            classes = dict(zip(class_df['class_name'], class_df['class_id']))
+            # class_id 컬럼이 없으면 인덱스를 class_id로 사용
+            if 'class_id' in class_df.columns:
+                classes = dict(zip(class_df['class_name'], class_df['class_id']))
+            else:
+                classes = {name: idx for idx, name in enumerate(class_df['class_name'])}
         else:
             # CSV 없으면 생성
             print(f"{csv_path} not found. Generating from {self.data_root}...")
@@ -103,7 +118,12 @@ class DatasetLoader(Dataset):
                 continue
 
             label = obj.get("label", "unlabeled")
-            class_id = self.classes.get(label, 0)
+
+            # 그룹화 적용: class_grouping이 있으면 그룹ID, 없으면 원본 class_id
+            if self.class_grouping:
+                class_id = self.class_grouping.get(label, 0)  # 매핑 없으면 0 (무시 그룹)
+            else:
+                class_id = self.classes.get(label, 0)
 
             polygon = obj.get("polygon", [])
             if len(polygon) < 3:
