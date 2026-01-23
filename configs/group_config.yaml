@@ -1,6 +1,3 @@
-# 클래스 그룹화 설정
-# 원본 62개 클래스 → 20개 그룹으로 매핑
-
 enabled: true
 num_classes: 20  # 그룹화 후 클래스 수
 
@@ -27,7 +24,7 @@ group_names:
   18: "building"        # 건물
   19: "wall"            # 벽
 
-# 클래스명 → 그룹ID 매핑
+# 클래스명 그룹ID 매핑
 mapping:
   # [그룹 0] 무시 영역 (LOW_COUNT + 기타)
   motorcycle: 0
