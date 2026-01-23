@@ -1,11 +1,23 @@
 <div align="center">
 
+# Demo
+
+| | |
+|:---:|:---:|
+| <img src="assets/lane_gif_1.gif" alt="Lane Demo 1" width="400"> | <img src="assets/lane_gif_2.gif" alt="Lane Demo 2" width="400"> |
+
+<br>
+<br>
+
 # 🚗 Road & Lane Segmentation
 
 **자율주행을 위한 도로 및 차선 세그멘테이션**
 
-<img src="assets/readme_image.png" alt="Road Lane Segmentation">
+| | |
+|:---:|:---:|
+| <img src="dataset/main_1.png" alt="Main 1" width="400" height="250"> | <img src="dataset/main_2.png" alt="Main 2" width="400" height="250"> |
 
+<br>
 <br>
 
 # 🏅 Tech Stack 🏅
@@ -16,213 +28,135 @@
 ![OpenCV](https://img.shields.io/badge/OpenCV-5C3EE8?style=for-the-badge&logo=opencv&logoColor=white)
 ![NumPy](https://img.shields.io/badge/NumPy-013243?style=for-the-badge&logo=numpy&logoColor=white)
 ![Albumentations](https://img.shields.io/badge/Albumentations-E8710A?style=for-the-badge&logoColor=white)
-![Streamlit](https://img.shields.io/badge/Streamlit-FF4B4B?style=for-the-badge&logo=streamlit&logoColor=white)
+![W&B](https://img.shields.io/badge/W%26B-FFBE00?style=for-the-badge&logo=weightsandbiases&logoColor=black)
 
 </div>
 
 <br>
 
-## Team
+## 👥 Team
 
 | ![함성민](https://github.com/raretomato.png) | ![전승호](https://github.com/jeonseungho-glitch.png) | ![주호중](https://github.com/hojoooooong.png) | ![문국현](https://github.com/GH-Door.png) |
-| :--------------------------------------------------------------: | :--------------------------------------------------------------: | :--------------------------------------------------------------: | :--------------------------------------------------------------: |
+| :--: | :--: | :--: | :--: |
 | [함성민](https://github.com/raretomato) | [전승호](https://github.com/jeonseungho-glitch) | [주호중](https://github.com/hojoooooong) | [문국현](https://github.com/GH-Door) |
-| 팀장 | 팀원 | 팀원 | 팀원 |
 
 <br>
 
-## Project Overview
+## 🎯 연구 목표
 
-| 항목 | 내용 |
-|:-----|:-----|
-| **📅 Date** | 2026.01.12 ~ 2026.01.16 |
-| **👥 Type** | 팀 프로젝트 |
-| **🎯 Goal** | 자율주행을 위한 도로 및 차선 실시간 세그멘테이션 시스템 구축 |
-| **🔧 Tech Stack** | PyTorch, segmentation_models_pytorch, Albumentations, OpenCV, Streamlit |
-| **📊 Dataset** | [BDD100K](https://www.bdd100k.com/) / [TuSimple](https://github.com/TuSimple/tusimple-benchmark) |
+| # | 목표 | 설명 |
+|:-:|:-----|:-----|
+| 01 | **Driving-scene Semantic Segmentation** | 차선 및 주요 객체 인식을 위한 픽셀 단위 분류 |
+| 02 | **Lane Segmentation 및 조향각 제어** | 검출된 차선 정보를 활용한 차량 조향각 예측 |
+| 03 | **향후 기대 과제** | 차선과 객체 정보를 통합한 고도화된 제어 기법 |
 
 <br>
 
-## 📋 목차
+## 📊 Dataset
 
-- [프로젝트 소개](#-프로젝트-소개)
-- [주요 기능](#-주요-기능)
-- [모델 아키텍처](#-모델-아키텍처)
-- [설치 방법](#-설치-방법)
-- [사용 방법](#-사용-방법)
-- [실험 결과](#-실험-결과)
-- [프로젝트 구조](#-프로젝트-구조)
+### ETRI 멀티카메라 Segmentation Dataset
+- 도로 환경 오브젝트 **68개 클래스** 라벨링
+- 사이즈: **2048 x 1536**
+- 데이터: Multi (Train 515, Test 182) + Mono (210)
+
+### SDLane Dataset (차선 전용)
+- 중앙~끝차선까지 번호 구분된 차선 라벨
+- 사이즈: **1920 x 1208**
+- 데이터: Train 39,096 / Test 3,853
 
 <br>
 
-## 🎬 시연 영상
+## 🔄 System Pipeline
 
 <div align="center">
-
-### 📹 모델 추론 데모
-
-<!-- 시연 영상 링크 추가 -->
-<!-- https://github.com/user-attachments/assets/your-video-id -->
-
+  <img src="dataset/pipeline.png" alt="System Pipeline" width="80%">
 </div>
+
+<br>
+
+## 🔧 문제 해결 과정
+
+### 1️⃣ Class Imbalance 문제
+> 상위 클래스(pole 14,000건)와 하위 클래스 간 극심한 불균형
+
+**해결:** 의미론적 + 통계적 관점으로 **68 → 20 클래스 그룹핑** 적용, `inverse` class weights로 학습 안정화
 
 ---
 
-## 🎯 프로젝트 소개
+### 2️⃣ 점선 차선 마스킹 실패
+> Multi-class segmentation 후 OpenCV 로직으로 주행차선 마스킹 시, 점선 공백 구간 오류
 
-자율주행 시스템의 핵심 기술인 도로 및 차선 인식을 위한 딥러닝 기반 Semantic Segmentation 시스템입니다.
+**해결:** **병렬 처리 구조** 도입
+- Multi-class segmentation (객체/도로)
+- Lane segmentation (차선 전용)
+- 최종 결과 통합하여 조향각 제어
 
-### 핵심 특징
-- ✅ **Semantic Segmentation**: 픽셀 단위 도로/차선 분류
-- 🚀 **실시간 추론**: 경량화된 모델로 실시간 처리 가능
-- 🎨 **다양한 환경 대응**: 주/야간, 날씨 변화에 강건한 인식
-- 📊 **데이터 증강**: Albumentations를 활용한 강건한 학습
-- 🔬 **재현 가능한 파이프라인**: 학습/평가/추론 모듈화
+---
 
-<br>
+### 3️⃣ Instance vs Semantic Segmentation
+> 얇은 차선(Polyline)에서 Instance Seg 적용 시 미세 오차에도 IoU/Dice 급락
 
-## 🎯 주요 기능
+**해결:** **Semantic Segmentation**으로 전환, Boundary F1 (BF1@4px) 기준으로 위치 정밀도 평가
 
-### 1. 세그멘테이션 클래스
-- **Road (도로)**: 주행 가능 영역 검출
-- **Lane Line (차선)**: 차선 영역 검출
-- **Background (배경)**: 비주행 영역
+---
 
-### 2. 지원 기능
-- 이미지 세그멘테이션
-- 동영상 실시간 세그멘테이션
-- 결과 시각화 및 오버레이
-- Streamlit 웹 데모
+### 4️⃣ 조향 제어 불안정
+> Stanley Controller + BEV 변환 시 점선 확산(Spreading) 문제
 
-<br>
-
-## 🏗️ 모델 아키텍처
-
-- **Base Models**: U-Net, U-Net++, DeepLabV3+
-- **Backbone**: ResNet34, ResNet50, EfficientNet-B0
-- **Framework**: segmentation_models_pytorch (SMP)
-- **Loss Function**: DiceLoss, FocalLoss, Combined Loss
-
-<br>
-
-## 🛠️ 설치 방법
-
-### 1. 저장소 클론
-
-```bash
-git clone https://github.com/your-org/Road_Lane_segmentation.git
-cd Road_Lane_segmentation
-```
-
-### 2. 의존성 설치 (uv 사용)
-
-```bash
-# uv 설치 (없는 경우)
-curl -LsSf https://astral.sh/uv/install.sh | sh
-
-# 패키지 설치
-uv sync
-```
-
-### 3. 데이터셋 다운로드
-
-```bash
-# 데이터셋 다운로드
-python scripts/download_dataset.py
-```
+**해결:** 단순화된 **스캔라인 기반 조향 제어**
+1. 다수 지점 스캔라인으로 차선 픽셀 감지
+2. 차선 중심 오프셋 계산
+3. 비선형 조향각 산출
+4. EMA 필터로 스무딩
 
 <br>
 
 ## 🚀 사용 방법
 
-### 모델 학습
-
+### 설치
 ```bash
-python src/training/train.py --config configs/train_config.yaml
+# uv 설치 (없는 경우)
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# 의존성 설치
+uv sync
 ```
 
-### 모델 평가
-
+### 학습 & 평가
 ```bash
-python src/evaluation/evaluate.py --weights weights/best.pt
+# 전체 파이프라인 (학습 → 평가)
+python main.py --config configs/config.yaml
+
+# 학습만
+python main.py --skip-eval
+
+# 평가만
+python main.py --skip-train --checkpoint checkpoints/best.pt
 ```
 
-### 추론 실행
-
+### 차선 검출 & 조향 시각화
 ```bash
-# 단일 이미지
-python src/inference/predict.py --image path/to/image.jpg
+# 차선 모델 학습
+python scripts/train_lane.py --config configs/lane_config.yaml
 
-# 동영상
-python src/inference/predict.py --video path/to/video.mp4
+# 데모 (이미지/영상)
+python scripts/demo_lane.py --checkpoint runs/lane/best.pt --image path/to/image.png
+python scripts/demo_lane.py --checkpoint runs/lane/best.pt --video path/to/video.mp4
 ```
 
-### Streamlit 데모 실행
+### Jupyter에서 사용
+```python
+from main import run_pipeline, train_only, eval_only
 
-```bash
-streamlit run streamlit_app/app.py
-```
+# 전체 파이프라인
+results = run_pipeline(config_path="configs/config.yaml")
 
-<br>
+# 차선 검출 + 조향
+from src.lane import LaneDetector
+from src.control import SteeringController, LanePilot
 
-## 📈 실험 결과
-
-| Model | Backbone | mIoU | Dice Score | Inference Time |
-|:------|:---------|:-----|:-----------|:---------------|
-| U-Net | ResNet34 | - | - | - ms |
-| U-Net++ | ResNet50 | - | - | - ms |
-| DeepLabV3+ | ResNet50 | - | - | - ms |
-
-<br>
-
-## 📁 프로젝트 구조
-
-```
-Road_Lane_segmentation/
-├── assets/               # 이미지 리소스
-│   └── readme_image.png
-│
-├── configs/              # 설정 파일
-│   └── train_config.yaml
-│
-├── dataset/              # 데이터셋
-│   ├── raw/             # 원본 데이터
-│   │   ├── train/
-│   │   │   ├── images/
-│   │   │   └── masks/
-│   │   ├── val/
-│   │   └── test/
-│   └── aug/             # 증강된 데이터
-│
-├── src/                 # 소스 코드
-│   ├── data/           # 데이터 로딩/전처리
-│   │   ├── dataset.py
-│   │   └── transforms.py
-│   ├── models/         # 모델 정의
-│   │   └── model.py
-│   ├── training/       # 학습 스크립트
-│   │   └── train.py
-│   ├── evaluation/     # 평가 스크립트
-│   │   └── evaluate.py
-│   └── inference/      # 추론 스크립트
-│       └── predict.py
-│
-├── scripts/            # 유틸리티 스크립트
-│   ├── download_dataset.py
-│   └── augment_data.py
-│
-├── weights/            # 학습된 모델 가중치
-│
-├── outputs/            # 추론 결과
-│
-├── streamlit_app/      # Streamlit 데모
-│   └── app.py
-│
-├── notebooks/          # 실험 노트북
-│
-├── pyproject.toml
-├── main.py
-└── README.md
+pilot = LanePilot(LaneDetector("runs/lane/best.pt"), SteeringController())
+result = pilot.process_frame(image)  # mask, steering, vis_frame
 ```
 
 <br>
@@ -234,5 +168,5 @@ This project is licensed under the MIT License.
 ---
 
 <div align="center">
-Made with ❤️ by Likelion AI Team
+Made with ❤️ by Team Tesla-Buy-Me
 </div>

@@ -1,0 +1,52 @@
+# SDLane Semantic Segmentation Config
+
+data:
+  train_root: "/dataset/SDLane/train"
+  val_root: "/dataset/SDLane/test"
+  exclude_folder: "a03dce1fc941e29b7a692717e40ca88d7c3aa18e"
+
+  # Image sizing
+  resize_shortest: 1024
+  resize_longest: 1920
+  size_divisor: 32
+
+  # Rasterization
+  line_width: 6
+  use_aa: false
+
+  # Sample limits
+  max_train_samples: null
+  max_val_samples: 500
+
+  # Fixed crop (train only)
+  use_train_crop: false
+  crop_size: 1024
+
+model:
+  encoder: "resnet50"
+  encoder_weights: "imagenet"
+
+loss:
+  pos_weight: 8.0
+  dice_weight: 0.5
+
+training:
+  seed: 42
+  epochs: 13
+  batch_size: 16
+  lr: 0.0006
+  weight_decay: 0.0001
+  num_workers: 8
+  grad_accum_steps: 1
+
+  # Speed optimizations
+  use_compile: true
+  use_channels_last: true
+
+  # Metrics
+  boundary_tols: [2, 4, 8]
+
+  # Logging
+  use_wandb: false
+  wandb_project: "lane-segmentation"
+  runs_root: "runs/lane"

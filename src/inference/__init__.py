@@ -1,5 +1,4 @@
 from .inferencer import Inferencer
-from .evaluator import Evaluator
 from .visualize import (
     visualize_prediction,
     visualize_comparison,
@@ -7,3 +6,12 @@ from .visualize import (
     mask_to_rgb,
     create_colormap
 )
+
+__all__ = [
+    "Inferencer",
+    "visualize_prediction",
+    "visualize_comparison",
+    "overlay_mask",
+    "mask_to_rgb",
+    "create_colormap",
+]

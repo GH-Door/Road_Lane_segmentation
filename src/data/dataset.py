@@ -18,6 +18,9 @@ class DatasetLoader(Dataset):
         camera: str = "left",
         transform=None,
         class_info_path: Optional[str] = None,
+        class_grouping: Optional[Dict[str, int]] = None,
+        num_grouped_classes: Optional[int] = None,
+        train_batch_size: int = 1,
     ):
         """
         Args:
@@ -26,20 +29,32 @@ class DatasetLoader(Dataset):
             camera: 'left' or 'right'
             transform: albumentations transform
             class_info_path: 클래스 정보 CSV 파일 경로 (지정하지 않으면 data_root에서 찾음)
+            class_grouping: 클래스명 → 그룹ID 매핑 (그룹화 비활성화 시 None)
+            num_grouped_classes: 그룹화 후 클래스 수 (그룹화 활성화 시 필수)
+            train_batch_size: 학습 배치 크기 (첫 배치 로딩 완료 로그용)
         """
         self.data_root = Path(data_root)
         self.split = split
         self.camera = camera
         self.transform = transform
         self.class_info_path = class_info_path
+        self.class_grouping = class_grouping  # 클래스명 → 그룹ID
+        self.num_grouped_classes = num_grouped_classes
+        self.train_batch_size = train_batch_size
+
 
         # 경로 설정
         self.labels_dir = self.data_root / "labels" / split
         self.img_dir = self.data_root / f"{camera}Img" / split
 
-        # 클래스 매핑 로드
+        # 클래스 매핑 로드 (원본 클래스명 → 원본 ID)
         self.classes = self.load_classes()
-        self.num_classes = len(self.classes)
+
+        # 그룹화 활성화 시 num_classes는 그룹 수, 아니면 원본 클래스 수
+        if self.class_grouping and self.num_grouped_classes:
+            self.num_classes = self.num_grouped_classes
+        else:
+            self.num_classes = len(self.classes)
 
         # 파일 목록 로드
         self.samples = self.load_samples()
@@ -53,7 +68,11 @@ class DatasetLoader(Dataset):
 
         if csv_path.exists():
             class_df = pd.read_csv(csv_path)
-            classes = dict(zip(class_df['class_name'], class_df['class_id']))
+            # class_id 컬럼이 없으면 인덱스를 class_id로 사용
+            if 'class_id' in class_df.columns:
+                classes = dict(zip(class_df['class_name'], class_df['class_id']))
+            else:
+                classes = {name: idx for idx, name in enumerate(class_df['class_name'])}
         else:
             # CSV 없으면 생성
             print(f"{csv_path} not found. Generating from {self.data_root}...")
@@ -65,6 +84,7 @@ class DatasetLoader(Dataset):
     def load_samples(self) -> List[Dict]:
         """이미지-라벨 쌍 로드"""
         samples = []
+        print(f"INFO: Scanning for JSON files in {self.labels_dir}...")
         label_files = sorted(glob.glob(str(self.labels_dir / "**/*.json"), recursive=True))
 
         for label_path in label_files:
@@ -86,6 +106,7 @@ class DatasetLoader(Dataset):
                 })
 
         print(f"{self.split.capitalize()} samples: {len(samples)}")
+
         return samples
 
     def load_json(self, json_path: str) -> dict:
@@ -103,7 +124,12 @@ class DatasetLoader(Dataset):
                 continue
 
             label = obj.get("label", "unlabeled")
-            class_id = self.classes.get(label, 0)
+
+            # 그룹화 적용: class_grouping이 있으면 그룹ID, 없으면 원본 class_id
+            if self.class_grouping:
+                class_id = self.class_grouping.get(label, 0)  # 매핑 없으면 0 (무시 그룹)
+            else:
+                class_id = self.classes.get(label, 0)
 
             polygon = obj.get("polygon", [])
             if len(polygon) < 3:
@@ -118,29 +144,43 @@ class DatasetLoader(Dataset):
         return len(self.samples)
 
     def __getitem__(self, idx: int) -> Tuple[torch.Tensor, torch.Tensor]:
-        sample = self.samples[idx]
+        # if idx == 0:
+        #     # Print only once for the first item requested by any worker.
+        #     print(f"INFO: DatasetLoader: Starting data processing for split '{self.split}' (first index: {idx}).")
 
-        # 이미지 로드 (한글 경로 지원)
-        img = cv2.imdecode(np.fromfile(sample["img_path"], dtype=np.uint8), cv2.IMREAD_COLOR)
-        if img is None:
-            raise FileNotFoundError(f"Cannot load image: {sample['img_path']}")
-        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        try:
+            sample = self.samples[idx]
 
-        # 라벨 로드 및 마스크 생성
-        annotation = self.load_json(sample["label_path"])
-        orig_h, orig_w = annotation["imgHeight"], annotation["imgWidth"]
-        mask = self.polygon_to_mask(annotation, (orig_h, orig_w))
+            # 이미지 로드 (한글 경로 지원)
+            img = cv2.imdecode(np.fromfile(sample["img_path"], dtype=np.uint8), cv2.IMREAD_COLOR)
+            if img is None:
+                raise FileNotFoundError(f"Cannot load image: {sample['img_path']}")
+            img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
 
-        # Transform 적용
-        if self.transform:
-            transformed = self.transform(image=img, mask=mask)
-            img = transformed["image"]
-            mask = transformed["mask"].long()
-        else:
-            img = torch.from_numpy(img).permute(2, 0, 1).float() / 255.0
-            mask = torch.from_numpy(mask).long()
+            # 라벨 로드 및 마스크 생성
+            annotation = self.load_json(sample["label_path"])
+            orig_h, orig_w = annotation["imgHeight"], annotation["imgWidth"]
+            mask = self.polygon_to_mask(annotation, (orig_h, orig_w))
 
-        return img, mask
+            # Transform 적용
+            if self.transform:
+                transformed = self.transform(image=img, mask=mask)
+                img = transformed["image"]
+                mask = transformed["mask"].long()
+            else:
+                img = torch.from_numpy(img).permute(2, 0, 1).float() / 255.0
+                mask = torch.from_numpy(mask).long()
+
+            # if idx == self.train_batch_size - 1:
+            #     # Print only once after the last item of the first batch is processed.
+            #     print(f"INFO: DatasetLoader: First batch prepared for split '{self.split}'. Tqdm progress bar will appear shortly.")
+
+            return img, mask
+
+        except Exception as e:
+            # Raising the exception is important for the DataLoader to handle it.
+            print(f"ERROR: DatasetLoader: Failed to load item at Index: {idx} | File: {self.samples[idx]['img_path']} | Error: {str(e)}")
+            raise e
 
     def get_sample_info(self, idx: int) -> Dict:
         """샘플 정보 반환 (디버깅/시각화용)"""

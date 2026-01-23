@@ -88,7 +88,8 @@ def init_wandb(config: dict, model, device: str, gpu_name: str, exp_name: str):
         project=wandb_cfg.get('project', 'Road_Lane_Segmentation'),
         name=run_name,
         tags=wandb_cfg.get('tags', []),
-        config=wandb_config
+        config=wandb_config,
+        settings=wandb.Settings(console="off")
     )
     logger.info(f"W&B initialized: project={wandb_cfg.get('project')}, run_name={run_name}")
 
