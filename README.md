@@ -2,30 +2,20 @@
 
 # Demo
 
-<div style="display: flex; justify-content: center; gap: 10px;">
-  <div style="width: 45%;">
-    <img src="assets/lane_gif_1.gif" alt="Lane Demo 1" style="width: 100%;">
-  </div>
-  <div style="width: 45%;">
-    <img src="assets/lane_gif_2.gif" alt="Lane Demo 2" style="width: 100%;">
-  </div>
-</div>
-</div>
+| | |
+|:---:|:---:|
+| <img src="assets/lane_gif_1.gif" alt="Lane Demo 1" width="400"> | <img src="assets/lane_gif_2.gif" alt="Lane Demo 2" width="400"> |
 
 <br>
 <br>
-<br>
-
-<div align="center">
 
 # 🚗 Road & Lane Segmentation
 
 **자율주행을 위한 도로 및 차선 세그멘테이션**
 
-<div style="display: flex; justify-content: center; gap: 20px;">
-  <img src="dataset/main_1.png" alt="Main 1" width="45%">
-  <img src="dataset/main_2.png" alt="Main 2" width="45%">
-</div>
+| | |
+|:---:|:---:|
+| <img src="dataset/main_1.png" alt="Main 1" width="400" height="250"> | <img src="dataset/main_2.png" alt="Main 2" width="400" height="250"> |
 
 <br>
 <br>
