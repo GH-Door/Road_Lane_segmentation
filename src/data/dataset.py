@@ -84,6 +84,7 @@ class DatasetLoader(Dataset):
     def load_samples(self) -> List[Dict]:
         """이미지-라벨 쌍 로드"""
         samples = []
+        print(f"INFO: Scanning for JSON files in {self.labels_dir}...")
         label_files = sorted(glob.glob(str(self.labels_dir / "**/*.json"), recursive=True))
 
         for label_path in label_files:
@@ -143,9 +144,9 @@ class DatasetLoader(Dataset):
         return len(self.samples)
 
     def __getitem__(self, idx: int) -> Tuple[torch.Tensor, torch.Tensor]:
-        if idx == 0:
-            # Print only once for the first item requested by any worker.
-            print(f"INFO: DatasetLoader: Starting data processing for split '{self.split}' (first index: {idx}).")
+        # if idx == 0:
+        #     # Print only once for the first item requested by any worker.
+        #     print(f"INFO: DatasetLoader: Starting data processing for split '{self.split}' (first index: {idx}).")
 
         try:
             sample = self.samples[idx]
@@ -170,9 +171,9 @@ class DatasetLoader(Dataset):
                 img = torch.from_numpy(img).permute(2, 0, 1).float() / 255.0
                 mask = torch.from_numpy(mask).long()
 
-            if idx == self.train_batch_size - 1:
-                # Print only once after the last item of the first batch is processed.
-                print(f"INFO: DatasetLoader: First batch prepared for split '{self.split}'. Tqdm progress bar will appear shortly.")
+            # if idx == self.train_batch_size - 1:
+            #     # Print only once after the last item of the first batch is processed.
+            #     print(f"INFO: DatasetLoader: First batch prepared for split '{self.split}'. Tqdm progress bar will appear shortly.")
 
             return img, mask
 

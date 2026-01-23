@@ -1,0 +1,19 @@
+augmentation:
+  enabled: True
+  geometric:
+    enabled: True
+    horizontal_flip: True
+    rotate: {"enabled": True, "limit": 10}
+    scale: {"enabled": True, "scale_limit": 0.1}
+  photometric:
+    enabled: True
+    brightness_contrast: {"enabled": True, "brightness_limit": 0.2, "contrast_limit": 0.2}
+    hue_saturation: {"enabled": True, "hue_shift_limit": 10, "sat_shift_limit": 10, "val_shift_limit": 10}
+  night_simulation:
+    enabled: True
+    gamma: {"enabled": True, "gamma_limit": [50, 120]}
+    shadow: {"enabled": True}
+  noise_blur:
+    enabled: True
+    gaussian_noise: {"enabled": True}
+    motion_blur: {"enabled": True, "blur_limit": 5}
